@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔧 Automatizaciones para pymes
+# Automatizaciones para pymes
 
 **Herramientas simples para que las pequeñas empresas chilenas dejen de escribir los mismos datos dos o tres veces.**
 
@@ -15,7 +15,7 @@
 
 ---
 
-## 💡 La idea
+## La idea
 
 Muchas pymes trabajan con **Excel, la facturación del SII y WhatsApp por separado**: copian el mismo cliente, el mismo precio y el mismo producto de un lado a otro. Eso cuesta horas cada semana y provoca errores.
 
@@ -23,13 +23,13 @@ Este repositorio reúne demos de **"pegamento"**: programas pequeños que conect
 
 | # | Demo | Qué resuelve | Estado |
 |:-:|---|---|:-:|
-| 1 | [**Generador de cotizaciones**](demo1-generador-documentos/) | De una planilla Excel a un PDF profesional, con inventario y stock | ✅ Funcional |
-| 2 | Conector ventas ↔ inventario | No digitar dos veces una venta | 🛠️ Planificado |
-| 3 | Cobranza automática | Recordatorios según vencimiento y cruce con la cartola del banco | 🛠️ Planificado |
+| 1 | [**Generador de cotizaciones**](demo1-generador-documentos/) | De una planilla Excel a un PDF profesional, con inventario y stock | Funcional |
+| 2 | Conector ventas ↔ inventario | No digitar dos veces una venta | Planificado |
+| 3 | Cobranza automática | Recordatorios según vencimiento y cruce con la cartola del banco | Planificado |
 
 ---
 
-## 🧾 Demo 1 · Generador de cotizaciones
+## Demo 1 · Generador de cotizaciones
 
 > El vendedor solo escribe **quién es el cliente** y **qué productos quiere (código + cantidad)**. Los precios, las descripciones, el logo, el IVA y las condiciones de pago salen solos, y cuando el cliente acepta, **el stock se descuenta automáticamente**.
 
@@ -46,7 +46,7 @@ Este repositorio reúne demos de **"pegamento"**: programas pequeños que conect
 
 ### Antes y después
 
-| 😓 Antes | 😎 Con el generador |
+| Antes | Con el generador |
 |---|---|
 | Copiar a mano precio y descripción de cada producto | Se elige el código de una lista y el resto sale del inventario |
 | Calcular neto e IVA con calculadora | Neto + IVA = total, **siempre cuadra** |
@@ -54,30 +54,30 @@ Este repositorio reúne demos de **"pegamento"**: programas pequeños que conect
 | Actualizar el stock a mano después de cada venta | Al marcar la cotización como `aceptada`, el stock baja solo |
 | "¿Por qué no salió esta cotización?" | Un reporte dice **la hoja, la celda y cómo corregirlo** |
 
-### ✨ Funcionalidades
+### Funcionalidades
 
-- **🖥️ Un solo programa, dos pestañas.** Se abre con doble clic y no hace falta saber programar.
-- **✅ Validación en vivo.** El RUT chileno se revisa con el algoritmo **módulo 11** mientras se escribe, y los clientes que ya cotizaron se completan solos.
-- **📦 Inventario con stock.** Se busca un producto escribiendo parte del nombre ("taladro"). Si se cotiza más de lo que hay, el programa avisa pero no bloquea.
-- **📄 PDF profesional.** Incluye logo, datos de la empresa, fecha de validez, condiciones de pago y totales en formato chileno ($1.234.567).
-- **🔄 Stock automático y seguro.** Se descuenta al aceptar, **nunca dos veces**, se devuelve si la cotización se rechaza después y **nunca queda negativo**.
-- **🔍 Errores que se entienden.** Cada problema dice dónde está (por ejemplo `Detalle B16`) y cómo arreglarlo.
-- **📊 Excel amigable.** Tiene listas desplegables de códigos y fórmulas **BUSCARV** que muestran el precio mientras se escribe.
+- **Un solo programa, dos pestañas.** Se abre con doble clic y no hace falta saber programar.
+- **Validación en vivo.** El RUT chileno se revisa con el algoritmo **módulo 11** mientras se escribe, y los clientes que ya cotizaron se completan solos.
+- **Inventario con stock.** Se busca un producto escribiendo parte del nombre ("taladro"). Si se cotiza más de lo que hay, el programa avisa pero no bloquea.
+- **PDF profesional.** Incluye logo, datos de la empresa, fecha de validez, condiciones de pago y totales en formato chileno ($1.234.567).
+- **Stock automático y seguro.** Se descuenta al aceptar, **nunca dos veces**, se devuelve si la cotización se rechaza después y **nunca queda negativo**.
+- **Errores que se entienden.** Cada problema dice dónde está (por ejemplo `Detalle B16`) y cómo arreglarlo.
+- **Excel amigable.** Tiene listas desplegables de códigos y fórmulas **BUSCARV** que muestran el precio mientras se escribe.
 
 <div align="center">
 <img src="demo1-generador-documentos/docs/procesar.png" alt="Pestaña Procesar planilla con el reporte de errores" width="760">
 <br><sub>Pestaña <b>Procesar planilla</b>: resumen, errores con su celda exacta y PDF generados.</sub>
 </div>
 
-### ⚙️ Cómo funciona
+### Cómo funciona
 
 ```mermaid
 flowchart LR
-    F["🖥️ Formulario<br/>Nueva cotización"] -->|guarda| X
-    X["📗 Planilla Excel<br/>Empresa · Inventario<br/>Cotizaciones · Detalle"] --> V{"🔍 Validaciones"}
-    V -->|sin errores| P["📄 PDF de la<br/>cotización"]
-    V -->|con errores| R["⚠️ Reporte:<br/>hoja, celda y<br/>cómo corregir"]
-    V -->|estado = aceptada| S["📦 Descuento<br/>de stock"]
+    F["Formulario<br/>Nueva cotización"] -->|guarda| X
+    X["Planilla Excel<br/>Empresa · Inventario<br/>Cotizaciones · Detalle"] --> V{"Validaciones"}
+    V -->|sin errores| P["PDF de la<br/>cotización"]
+    V -->|con errores| R["Reporte:<br/>hoja, celda y<br/>cómo corregir"]
+    V -->|estado = aceptada| S["Descuento<br/>de stock"]
     S -->|actualiza| X
 ```
 
@@ -90,11 +90,11 @@ La planilla tiene **4 hojas**, y el usuario solo llena lo que le corresponde:
 | **Cotizaciones** | El vendedor (o el formulario) | Cliente y estado: `pendiente` · `aceptada` · `rechazada` |
 | **Detalle** | El vendedor (o el formulario) | Solo **código + cantidad**; el resto lo muestran las fórmulas |
 
-📖 La guía completa para llenar la planilla está en el [README de la demo](demo1-generador-documentos/README.md#cómo-llenar-la-planilla).
+La guía completa para llenar la planilla está en el [README de la demo](demo1-generador-documentos/README.md#cómo-llenar-la-planilla).
 
 ---
 
-## 🚀 Probarlo en 1 minuto
+## Probarlo en 1 minuto
 
 Requiere **Python 3.12 o superior** en Windows.
 
@@ -115,7 +115,7 @@ Para probarlo:
 
 ---
 
-## 🧠 Decisiones técnicas destacadas
+## Decisiones técnicas destacadas
 
 <details>
 <summary><b>¿Por qué el programa no confía en las fórmulas de Excel?</b></summary>
@@ -155,7 +155,7 @@ Al leer el Excel, cada dato recuerda su número de fila. Cada problema se guarda
 
 ---
 
-## 🗂️ Estructura
+## Estructura
 
 ```
 automatizaciones-pymes/
@@ -175,7 +175,7 @@ automatizaciones-pymes/
     └── datos_ejemplo/          ← planilla y logo ficticios
 ```
 
-## 🧪 Tests
+## Tests
 
 ```powershell
 cd demo1-generador-documentos
@@ -186,7 +186,7 @@ Los **108 tests** cubren: el algoritmo del RUT (incluidos los RUT que terminan e
 
 ---
 
-## 🛣️ Próximos pasos
+## Próximos pasos
 
 - [x] Generador de cotizaciones con formulario, inventario y stock
 - [ ] Empaquetar como `.exe` para usarlo sin instalar Python
@@ -198,7 +198,7 @@ Los **108 tests** cubren: el algoritmo del RUT (incluidos los RUT que terminan e
 
 <div align="center">
 
-Hecho por **Sebastián González**, estudiante de Ingeniería Civil Informática (UNAB, Chile) 🇨🇱
+Hecho por **Sebastián González**, estudiante de Ingeniería Civil Informática (UNAB, Chile)
 
 <sub>Todos los datos del repositorio son ficticios. "Ferretería El Martillo SpA" no existe.</sub>
 
