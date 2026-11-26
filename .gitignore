@@ -1,0 +1,30 @@
+# --- Entorno de Python ---
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# --- Empaquetado con PyInstaller (paso 6) ---
+build/
+dist/
+*.spec
+
+# --- PDFs generados: se crean al ejecutar, no se versionan ---
+**/salida/*
+!**/salida/.gitkeep
+
+# --- Datos: NUNCA subir planillas reales de clientes ---
+# Se ignoran todos los Excel/CSV...
+*.xlsx
+*.xls
+*.csv
+# ...excepto los de ejemplo (datos ficticios)
+!**/datos_ejemplo/*.xlsx
+!**/datos_ejemplo/*.csv
+
+# Archivos temporales que crea Excel al abrir una planilla
+~$*
+
+# --- Editor / sistema ---
+.vscode/
+Thumbs.db
