@@ -4,8 +4,11 @@ pdf.py
 Dibuja una cotización en PDF con reportlab.
 
 Se usa "platypus", la parte de reportlab que arma el documento con bloques
-(párrafos, tablas, espacios) uno debajo del otro, como en Word. Así no hay
-que calcular coordenadas a mano.
+(párrafos, tablas, imágenes, espacios) uno debajo del otro, como en Word.
+Así no hay que calcular coordenadas a mano.
+
+Los datos de la empresa (nombre, RUT, logo, validez, condiciones de pago)
+salen de la hoja Empresa: nada está escrito a mano en este archivo.
 """
 
 import re
@@ -17,7 +20,8 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .calculos import calcular_totales, formato_cantidad, formato_pesos, total_linea
 
@@ -25,6 +29,7 @@ from .calculos import calcular_totales, formato_cantidad, formato_pesos, total_l
 COLOR_PRINCIPAL = colors.HexColor("#1F4E78")
 COLOR_SUAVE = colors.HexColor("#EAF1F8")
 COLOR_LINEA = colors.HexColor("#B7C9DB")
+ALTO_LOGO = 2.2 * cm
 
 _base = getSampleStyleSheet()
 ESTILO_NORMAL = ParagraphStyle("normal", parent=_base["Normal"], fontSize=9, leading=12)
@@ -37,6 +42,8 @@ ESTILO_DERECHA = ParagraphStyle("derecha", parent=ESTILO_NORMAL, alignment=TA_RI
 ESTILO_CELDA = ParagraphStyle("celda", parent=ESTILO_NORMAL, fontSize=8.5, leading=11)
 ESTILO_PIE = ParagraphStyle("pie", parent=ESTILO_NORMAL, fontSize=7.5,
                             textColor=colors.grey, leading=10)
+ESTILO_SUBTITULO = ParagraphStyle("subtitulo", parent=ESTILO_NORMAL, fontName="Helvetica-Bold",
+                                  textColor=COLOR_PRINCIPAL)
 
 
 def nombre_archivo(cotizacion):
@@ -54,32 +61,54 @@ def _fecha(f):
     return f.strftime("%d-%m-%Y")
 
 
-def _encabezado(empresa, cotizacion):
-    """Datos de la empresa a la izquierda; N° y fechas a la derecha."""
-    izquierda = [
-        Paragraph(empresa.get("nombre", ""), ESTILO_EMPRESA),
-        Paragraph(f"RUT: {empresa.get('rut', '')}", ESTILO_NORMAL),
-        Paragraph(empresa.get("giro", ""), ESTILO_NORMAL),
-        Paragraph(empresa.get("direccion", ""), ESTILO_NORMAL),
-        Paragraph(f"{empresa.get('telefono', '')} · {empresa.get('email', '')}", ESTILO_NORMAL),
+def _logo(ruta_logo):
+    """Imagen del logo con alto fijo y ancho proporcional. None si no hay o falla."""
+    if ruta_logo is None:
+        return None
+    try:
+        ancho, alto = ImageReader(str(ruta_logo)).getSize()
+        return Image(str(ruta_logo), width=ALTO_LOGO * ancho / alto, height=ALTO_LOGO)
+    except Exception:
+        return None   # archivo dañado o formato raro: el PDF sale sin logo
+
+
+def _encabezado(empresa, cotizacion, ruta_logo):
+    """[logo] datos de la empresa | N°, fecha y validez a la derecha."""
+    datos = [
+        Paragraph(empresa["razon_social"], ESTILO_EMPRESA),
+        Paragraph(f"RUT: {empresa['rut']}", ESTILO_NORMAL),
     ]
+    if empresa.get("giro"):
+        datos.append(Paragraph(empresa["giro"], ESTILO_NORMAL))
+    datos.append(Paragraph(empresa["direccion"], ESTILO_NORMAL))
+    datos.append(Paragraph(f"{empresa['telefono']} · {empresa['email']}", ESTILO_NORMAL))
+    if empresa.get("sitio_web"):
+        datos.append(Paragraph(empresa["sitio_web"], ESTILO_NORMAL))
 
     fecha = cotizacion["fecha"]
-    validez = int(cotizacion.get("validez_dias") or 0)
+    vence = fecha + timedelta(days=int(float(empresa["validez_dias"])))
     derecha = [
         Paragraph("COTIZACIÓN", ESTILO_TITULO),
         Paragraph(f"<b>N° {cotizacion['n_cotizacion']}</b>", ESTILO_DERECHA),
         Paragraph(f"Fecha: {_fecha(fecha)}", ESTILO_DERECHA),
+        Paragraph(f"Válida hasta: {_fecha(vence)}", ESTILO_DERECHA),
     ]
-    if validez > 0:
-        vence = fecha + timedelta(days=validez)
-        derecha.append(Paragraph(f"Válida hasta: {_fecha(vence)}", ESTILO_DERECHA))
 
-    tabla = Table([[izquierda, derecha]], colWidths=[11 * cm, 7 * cm])
+    logo = _logo(ruta_logo)
+    if logo:
+        ancho_logo = logo.drawWidth + 0.4 * cm
+        fila = [[logo, datos, derecha]]
+        anchos = [ancho_logo, 11.5 * cm - ancho_logo, 6.5 * cm]
+    else:
+        fila = [[datos, derecha]]
+        anchos = [11.5 * cm, 6.5 * cm]
+
+    tabla = Table(fila, colWidths=anchos)
     tabla.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, 0), 1.5, COLOR_PRINCIPAL),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
     ]))
     return tabla
 
@@ -155,23 +184,28 @@ def _tabla_totales(items):
     return tabla
 
 
-def generar_pdf(empresa, cotizacion, ruta_salida):
-    """Crea el PDF de UNA cotización en 'ruta_salida'."""
+def generar_pdf(empresa, cotizacion, items, ruta_salida, ruta_logo=None):
+    """
+    Crea el PDF de UNA cotización en 'ruta_salida'.
+
+    items:     productos ya completados con el Inventario (inventario.completar_items)
+    ruta_logo: Path del logo, o None para un PDF sin logo
+    """
     doc = SimpleDocTemplate(
         str(ruta_salida), pagesize=letter,
         leftMargin=1.8 * cm, rightMargin=1.8 * cm, topMargin=1.5 * cm, bottomMargin=1.5 * cm,
         title=f"Cotización N° {cotizacion['n_cotizacion']}",
-        author=empresa.get("nombre", ""),
+        author=empresa["razon_social"],
     )
 
     bloques = [
-        _encabezado(empresa, cotizacion),
+        _encabezado(empresa, cotizacion, ruta_logo),
         Spacer(1, 0.5 * cm),
         _datos_cliente(cotizacion),
         Spacer(1, 0.5 * cm),
-        _tabla_productos(cotizacion["items"]),
+        _tabla_productos(items),
         Spacer(1, 0.4 * cm),
-        _tabla_totales(cotizacion["items"]),
+        _tabla_totales(items),
         Spacer(1, 0.4 * cm),
         Paragraph("Precios unitarios con IVA incluido.", ESTILO_PIE),
     ]
@@ -181,6 +215,10 @@ def generar_pdf(empresa, cotizacion, ruta_salida):
                     Paragraph(f"<b>Observaciones:</b> {cotizacion['observaciones']}", ESTILO_NORMAL)]
 
     bloques += [
+        Spacer(1, 0.5 * cm),
+        Paragraph("Condiciones de pago", ESTILO_SUBTITULO),
+        Spacer(1, 0.1 * cm),
+        Paragraph(empresa["condiciones_pago"], ESTILO_NORMAL),
         Spacer(1, 1 * cm),
         Paragraph("Este documento es una cotización y no constituye documento tributario. "
                   "Generado automáticamente.", ESTILO_PIE),

@@ -4,8 +4,8 @@ config.py
 Rutas que comparten todos los programas de la demo.
 
 La planilla de TRABAJO (datos/cotizaciones.xlsx) es distinta de la de EJEMPLO:
-  - La primera vez se crea copiando la de ejemplo.
-  - El formulario escribe en la de trabajo, así la de ejemplo queda intacta.
+  - La primera vez se crea copiando la de ejemplo (y su carpeta assets/ con el logo).
+  - Los programas escriben en la de trabajo, así la de ejemplo queda intacta.
   - La carpeta datos/ está en .gitignore: los datos reales nunca se suben.
 """
 
@@ -23,4 +23,8 @@ def preparar_planilla():
     if not PLANILLA_TRABAJO.exists():
         PLANILLA_TRABAJO.parent.mkdir(exist_ok=True)
         shutil.copy(PLANILLA_EJEMPLO, PLANILLA_TRABAJO)
+        assets_ejemplo = PLANILLA_EJEMPLO.parent / "assets"
+        assets_trabajo = PLANILLA_TRABAJO.parent / "assets"
+        if assets_ejemplo.exists() and not assets_trabajo.exists():
+            shutil.copytree(assets_ejemplo, assets_trabajo)
     return PLANILLA_TRABAJO

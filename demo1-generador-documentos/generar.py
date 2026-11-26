@@ -1,11 +1,12 @@
 """
 generar.py
 ----------
-Generación MASIVA: lee la planilla completa, valida cada cotización, genera
-un PDF por cada una que esté correcta y al final muestra un reporte con los
-problemas encontrados.
+Versión de CONSOLA de "Procesar planilla" (la versión con ventana está en
+app.py, pestaña "Procesar planilla"). Ambas usan generador/proceso.py, así
+que hacen exactamente lo mismo; esta solo imprime el resultado como texto.
 
-(Para crear cotizaciones de a una con una ventana, usar formulario.py.)
+Sirve para automatizar (por ejemplo, programarla para que corra sola cada
+mañana) o para usarla desde la terminal.
 
 Uso:
     python generar.py                       -> usa datos/cotizaciones.xlsx
@@ -16,58 +17,61 @@ import sys
 from pathlib import Path
 
 from generador.config import CARPETA_SALIDA, preparar_planilla
-from generador.lectura import leer_planilla
-from generador.pdf import generar_pdf, nombre_archivo
-from generador.validaciones import validar_cotizacion
+from generador.proceso import procesar_planilla
+
+
+def _titulo(texto):
+    print(f"\n{texto}\n" + "-" * len(texto))
+
+
+def _imprimir_avisos(avisos):
+    for a in avisos:
+        cotizacion = f"N° {a.n_cotizacion} · " if a.n_cotizacion else ""
+        print(f"  {cotizacion}[{a.donde}] {a.mensaje}")
+        if a.ayuda:
+            print(f"      -> {a.ayuda}")
 
 
 def main():
-    # Mostrar bien tildes y ñ en la consola de Windows.
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")   # tildes y ñ en la consola de Windows
 
-    planilla = Path(sys.argv[1]) if len(sys.argv) > 1 else preparar_planilla()
-    print(f"Leyendo planilla: {planilla}\n")
-
+    ruta = Path(sys.argv[1]) if len(sys.argv) > 1 else preparar_planilla()
+    print(f"Planilla: {ruta}")
     try:
-        empresa, cotizaciones = leer_planilla(planilla)
-    except FileNotFoundError:
-        print(f"ERROR: no se encontró la planilla {planilla}")
-        return 1
-    except ValueError as e:  # columnas u hojas faltantes
-        print(f"ERROR en la planilla: {e}")
+        res = procesar_planilla(ruta)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"\nERROR: no se pudo leer la planilla: {e}")
         return 1
 
-    CARPETA_SALIDA.mkdir(exist_ok=True)
-    generadas, con_problemas = [], []
+    if res.empresa_bloqueada:
+        _titulo("ERROR en la hoja Empresa: no se generó ningún PDF ni se movió stock")
+        _imprimir_avisos(res.avisos)
+        return 1
 
-    for cot in cotizaciones:
-        problemas = validar_cotizacion(cot)
-        if problemas:
-            con_problemas.append((cot, problemas))
-            continue
+    _titulo("PDF")
+    for n, ruta_pdf in res.pdfs_nuevos:
+        print(f"  [OK] N° {n} -> {ruta_pdf.name}")
+    for n, _ in res.pdfs_existentes:
+        print(f"  [--] N° {n}: ya generada, se mantiene la original")
 
-        ruta = CARPETA_SALIDA / nombre_archivo(cot)
-        try:
-            generar_pdf(empresa, cot, ruta)
-            generadas.append(ruta)
-            print(f"  [OK] Cotización N° {cot['n_cotizacion']} -> {ruta.name}")
-        except PermissionError:
-            # Típico en Windows: el PDF anterior está abierto en el lector.
-            con_problemas.append((cot, [f"No se pudo guardar {ruta.name}: "
-                                        "ciérrelo si lo tiene abierto y vuelva a intentar"]))
+    if res.descontadas or res.devueltas:
+        _titulo("Stock")
+        for n in res.descontadas:
+            print(f"  [-] N° {n} aceptada: stock descontado")
+        for n in res.devueltas:
+            print(f"  [+] N° {n} ya no está aceptada: stock devuelto")
 
-    # --- Reporte final ---
-    print(f"\nResumen: {len(generadas)} PDF generados, "
-          f"{len(con_problemas)} cotizaciones con problemas.")
+    print(f"\nResumen: {len(res.pdfs_nuevos)} PDF nuevos, "
+          f"{len(res.cotizaciones_con_errores)} cotizaciones con errores, "
+          f"{len(res.advertencias)} advertencias.")
+    if res.errores:
+        _titulo("Errores (corrija en la planilla y vuelva a procesar)")
+        _imprimir_avisos(res.errores)
+    if res.advertencias:
+        _titulo("Advertencias (no impiden generar)")
+        _imprimir_avisos(res.advertencias)
 
-    if con_problemas:
-        print("\nRevise en la planilla y vuelva a ejecutar:")
-        for cot, problemas in con_problemas:
-            print(f"\n  Cotización N° {cot['n_cotizacion']} ({cot['razon_social'] or 'sin nombre'}):")
-            for p in problemas:
-                print(f"    - {p}")
-
-    print(f"\nLos PDF quedaron en: {CARPETA_SALIDA}")
+    print(f"\nLos PDF están en: {CARPETA_SALIDA}")
     return 0
 
 

@@ -1,45 +1,70 @@
 """
 lectura.py
 ----------
-Lee la planilla Excel de cotizaciones y la convierte en estructuras simples de
-Python (diccionarios y listas).
+Lee la planilla Excel y la convierte en estructuras simples de Python.
 
-Este es el ÚNICO módulo que sabe que los datos vienen de Excel. El resto del
-programa (validaciones, cálculos, PDF) recibe datos ya limpios. Si mañana el
-cliente usa Google Sheets, solo hay que cambiar este archivo.
+Este es (junto con escritura.py) el ÚNICO módulo que sabe que los datos
+vienen de Excel. El resto del programa recibe datos ya limpios.
 
-La planilla debe tener 3 hojas:
-    - Empresa:       datos de la empresa que emite la cotización
-    - Cotizaciones:  una fila por cotización
-    - Detalle:       una fila por producto, unida a Cotizaciones por n_cotizacion
+Hojas:
+    - Empresa:       configuración (campo | valor | ayuda)
+    - Inventario:    catálogo con precios y stock
+    - Cotizaciones:  una fila por cotización (datos del cliente y estado)
+    - Detalle:       una fila por producto cotizado. Solo se leen
+                     n_cotizacion, codigo y cantidad: las demás columnas
+                     son fórmulas para el usuario y el programa NO las usa.
 """
+
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import pandas as pd
 
-# Columnas que DEBE tener cada hoja. Si falta alguna, avisamos con un mensaje
-# claro en vez de dejar que el programa falle más adelante con un error confuso.
+from .validaciones import Problema
+
 COLUMNAS_COTIZACIONES = [
-    "n_cotizacion", "fecha", "rut_cliente", "razon_social",
-    "contacto", "email", "validez_dias", "observaciones",
+    "n_cotizacion", "fecha", "rut_cliente", "razon_social", "contacto",
+    "email", "observaciones", "estado", "stock_descontado",
 ]
-COLUMNAS_DETALLE = [
-    "n_cotizacion", "codigo", "descripcion", "unidad",
-    "cantidad", "precio_unitario_iva",
-]
+TEXTO_COTIZACIONES = ["rut_cliente", "razon_social", "contacto", "email", "observaciones", "estado"]
 
-# Columnas de texto: aquí una celda vacía (NaN) se reemplaza por "".
-# Las columnas numéricas NO se tocan: si vienen vacías, validaciones.py
-# debe detectarlo y reportarlo.
-TEXTO_COTIZACIONES = ["rut_cliente", "razon_social", "contacto", "email", "observaciones"]
-TEXTO_DETALLE = ["codigo", "descripcion", "unidad"]
+COLUMNAS_DETALLE = ["n_cotizacion", "codigo", "cantidad"]   # lo único que escribe el usuario
+COLUMNAS_INVENTARIO = ["codigo", "descripcion", "unidad", "precio_unitario_iva", "stock"]
 
 
-def _leer_hoja(ruta, nombre_hoja, columnas_requeridas, columnas_texto):
+@dataclass
+class Planilla:
+    """Todo lo que se leyó de la planilla."""
+    ruta: Path
+    empresa: dict                       # {"razon_social": ..., "rut": ..., ...}
+    inventario: dict                    # {"CEM-25": {codigo, descripcion, ...}, ...}
+    cotizaciones: list                  # dicts con su lista "items" [{codigo, cantidad, fila}]
+    advertencias: list = field(default_factory=list)   # problemas de filas sueltas
+    filas_empresa: dict = field(default_factory=dict)  # {"rut": 3, ...} fila de cada campo
+
+    @property
+    def carpeta(self):
+        """Carpeta de la planilla: las rutas de la hoja Empresa son relativas a ella."""
+        return self.ruta.parent
+
+    def ruta_logo(self):
+        """Ruta del logo si está configurado Y el archivo existe; si no, None."""
+        valor = self.empresa.get("logo", "")
+        if not valor:
+            return None
+        ruta = self.carpeta / valor
+        return ruta if ruta.is_file() else None
+
+
+def _leer_hoja(ruta, nombre_hoja, columnas_requeridas, columnas_texto, usecols=None):
     """Lee una hoja, verifica sus columnas y limpia las celdas de texto vacías."""
-    # dtype=str en las columnas de texto evita que pandas "adivine" mal el tipo
-    # (por ejemplo, un código "0012" se leería como el número 12).
-    df = pd.read_excel(ruta, sheet_name=nombre_hoja,
-                       dtype={col: str for col in columnas_texto})
+    try:
+        df = pd.read_excel(ruta, sheet_name=nombre_hoja, usecols=usecols,
+                           dtype={col: str for col in columnas_texto})
+    except ValueError as e:
+        if "Worksheet named" in str(e):
+            raise ValueError(f"La planilla no tiene la hoja '{nombre_hoja}'") from e
+        raise
 
     faltantes = [col for col in columnas_requeridas if col not in df.columns]
     if faltantes:
@@ -47,74 +72,137 @@ def _leer_hoja(ruta, nombre_hoja, columnas_requeridas, columnas_texto):
             f"A la hoja '{nombre_hoja}' le faltan las columnas: {', '.join(faltantes)}"
         )
 
-    # Reemplazar NaN por "" SOLO en las columnas de texto, y quitar espacios
-    # sobrantes al inicio y al final (" Ana " -> "Ana").
+    # Reemplazar NaN por "" SOLO en las columnas de texto y quitar espacios
+    # sobrantes. Los números vacíos quedan como NaN para que validaciones.py
+    # los detecte.
     for col in columnas_texto:
-        df[col] = df[col].fillna("").str.strip()
-
+        df[col] = df[col].fillna("").astype(str).str.strip()
     return df
 
 
+def _a_fecha(valor):
+    """Timestamp de pandas -> date. Vacío -> None."""
+    if pd.isna(valor) or valor == "":
+        return None
+    try:
+        return pd.Timestamp(valor).date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _a_entero(valor):
+    """1001.0 -> 1001. Vacío o texto -> None."""
+    try:
+        if pd.isna(valor):
+            return None
+        return int(float(valor))
+    except (ValueError, TypeError):
+        return None
+
+
 def _leer_empresa(ruta):
-    """Convierte la hoja Empresa (columnas campo | valor) en un diccionario."""
-    df = pd.read_excel(ruta, sheet_name="Empresa", dtype=str).fillna("")
-    # zip une las dos columnas fila a fila: {"nombre": "Ferretería...", "rut": ...}
-    return dict(zip(df["campo"].str.strip(), df["valor"].str.strip()))
+    """
+    Hoja Empresa (campo | valor | ayuda) -> (dict {campo: valor}, dict {campo: fila}).
+    La fila sirve para decirle al usuario exactamente qué celda corregir.
+    """
+    df = _leer_hoja(ruta, "Empresa", ["campo", "valor"], ["campo", "valor"])
+    valores, filas = {}, {}
+    for fila_excel, (campo, valor) in enumerate(zip(df["campo"], df["valor"]), start=2):
+        if campo:
+            valores[campo] = valor
+            filas[campo] = fila_excel
+    return valores, filas
+
+
+def _leer_inventario(ruta, advertencias):
+    """Hoja Inventario -> dict {codigo: producto}. El código se guarda en MAYÚSCULAS."""
+    df = _leer_hoja(ruta, "Inventario", COLUMNAS_INVENTARIO, ["codigo", "descripcion", "unidad"])
+    inventario = {}
+    for fila_excel, p in enumerate(df.to_dict("records"), start=2):
+        codigo = p["codigo"].upper()
+        if not codigo:
+            continue
+        if codigo in inventario:
+            advertencias.append(Problema(
+                f"El código {codigo} está repetido; se usa la primera aparición",
+                celda=f"Inventario A{fila_excel}",
+                ayuda="Cada código debe aparecer una sola vez. Borre o cambie esta fila."))
+            continue
+        p["codigo"] = codigo
+        p["fila"] = fila_excel
+        inventario[codigo] = p
+    return inventario
+
+
+def _leer_detalle(ruta, advertencias):
+    """
+    Hoja Detalle -> dict {n_cotizacion: [ {codigo, cantidad, fila}, ... ]}.
+
+    La hoja trae cientos de filas con fórmulas pre-cargadas pero vacías:
+    se descartan las filas donde el usuario no escribió nada.
+    """
+    df = _leer_hoja(ruta, "Detalle", COLUMNAS_DETALLE, ["codigo"], usecols="A:C")
+    items = {}
+    for fila_excel, d in enumerate(df.to_dict("records"), start=2):
+        n = _a_entero(d["n_cotizacion"])
+        tiene_cantidad = not pd.isna(d["cantidad"]) and d["cantidad"] != ""
+        if n is None and not d["codigo"] and not tiene_cantidad:
+            continue    # fila vacía
+        if n is None:
+            advertencias.append(Problema(
+                "Tiene producto pero no n_cotizacion; se ignora",
+                celda=f"Detalle A{fila_excel}",
+                ayuda="Escriba el número de la cotización a la que pertenece este producto."))
+            continue
+        items.setdefault(n, []).append(
+            {"codigo": d["codigo"].upper(), "cantidad": d["cantidad"], "fila": fila_excel})
+    return items
 
 
 def leer_planilla(ruta):
-    """
-    Lee la planilla completa.
+    """Lee la planilla completa y retorna un objeto Planilla."""
+    ruta = Path(ruta)
+    advertencias = []
+    empresa, filas_empresa = _leer_empresa(ruta)
+    inventario = _leer_inventario(ruta, advertencias)
+    items_por_cotizacion = _leer_detalle(ruta, advertencias)
 
-    Retorna una tupla (empresa, cotizaciones):
-        empresa       -> dict con los datos del emisor
-        cotizaciones  -> lista de dicts; cada uno trae una clave "items" con
-                         la lista de sus productos (vacía si no tiene ninguno)
-    """
-    empresa = _leer_empresa(ruta)
     df_cot = _leer_hoja(ruta, "Cotizaciones", COLUMNAS_COTIZACIONES, TEXTO_COTIZACIONES)
-    df_det = _leer_hoja(ruta, "Detalle", COLUMNAS_DETALLE, TEXTO_DETALLE)
-
-    # Agrupar el detalle por número de cotización UNA sola vez.
-    # Resultado: {1001: [item, item, ...], 1002: [...], ...}
-    # (Es más eficiente que filtrar el detalle completo por cada cotización.)
-    items_por_cotizacion = {
-        n: grupo.drop(columns="n_cotizacion").to_dict("records")
-        for n, grupo in df_det.groupby("n_cotizacion")
-    }
-
     cotizaciones = []
-    for fila in df_cot.to_dict("records"):
-        # pandas entrega la fecha como Timestamp; la pasamos a fecha simple.
-        if pd.notna(fila["fecha"]):
-            fila["fecha"] = pd.Timestamp(fila["fecha"]).date()
-        # .get(..., []) -> si la cotización no tiene productos, lista vacía.
-        fila["items"] = items_por_cotizacion.get(fila["n_cotizacion"], [])
-        cotizaciones.append(fila)
+    for fila_excel, c in enumerate(df_cot.to_dict("records"), start=2):
+        n = _a_entero(c["n_cotizacion"])
+        if n is None:
+            if c["rut_cliente"] or c["razon_social"]:
+                advertencias.append(Problema(
+                    "Tiene datos pero no n_cotizacion; se ignora",
+                    celda=f"Cotizaciones A{fila_excel}",
+                    ayuda="Escriba el número de la cotización."))
+            continue
+        c["n_cotizacion"] = n
+        c["fila"] = fila_excel
+        c["fecha"] = _a_fecha(c["fecha"])
+        c["stock_descontado"] = _a_fecha(c["stock_descontado"])
+        c["estado"] = c["estado"].lower() or "pendiente"   # vacío = pendiente
+        c["items"] = items_por_cotizacion.pop(n, [])
+        cotizaciones.append(c)
 
-    return empresa, cotizaciones
+    # Productos cuyo n_cotizacion no existe en la hoja Cotizaciones
+    for n, items in sorted(items_por_cotizacion.items()):
+        advertencias.append(Problema(
+            f"Hay productos para la cotización N° {n}, que no existe en Cotizaciones; "
+            "se ignoran", celda=f"Detalle A{items[0]['fila']}",
+            ayuda="Revise el número, o agregue la cotización en la hoja Cotizaciones."))
+
+    return Planilla(ruta, empresa, inventario, cotizaciones, advertencias, filas_empresa)
 
 
-COLUMNAS_PRODUCTOS = ["codigo", "descripcion", "unidad", "precio_unitario_iva"]
-TEXTO_PRODUCTOS = ["codigo", "descripcion", "unidad"]
-
-
-def leer_productos(ruta):
-    """
-    Lee el catálogo (hoja Productos). Retorna una lista de dicts.
-    Se omiten las filas sin código, que suelen ser filas vacías al final.
-    """
-    df = _leer_hoja(ruta, "Productos", COLUMNAS_PRODUCTOS, TEXTO_PRODUCTOS)
-    df = df[df["codigo"] != ""]
-    return df.to_dict("records")
-
-
-# Prueba rápida: ejecutar este archivo directamente muestra un resumen.
-#   python -m generador.lectura   (desde la carpeta demo1-generador-documentos)
+# Prueba rápida: python -m generador.lectura   (desde demo1-generador-documentos)
 if __name__ == "__main__":
-    empresa, cotizaciones = leer_planilla("datos_ejemplo/cotizaciones_ejemplo.xlsx")
-    print("Empresa:", empresa["nombre"], "|", empresa["rut"])
-    for c in cotizaciones:
-        print(f"  N° {c['n_cotizacion']} | {c['fecha']} | {c['rut_cliente']} | "
-              f"{c['razon_social']} | {len(c['items'])} productos | "
-              f"obs: {c['observaciones']!r}")
+    from .config import PLANILLA_EJEMPLO
+    p = leer_planilla(PLANILLA_EJEMPLO)
+    print("Empresa:", p.empresa.get("razon_social"), "| logo:", p.ruta_logo())
+    print("Inventario:", len(p.inventario), "productos")
+    for c in p.cotizaciones:
+        print(f"  N° {c['n_cotizacion']} | {c['estado']:9} | {c['razon_social']} | "
+              f"{[(i['codigo'], i['cantidad']) for i in c['items']]}")
+    print("Advertencias:", p.advertencias)
