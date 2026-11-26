@@ -1,6 +1,6 @@
 <div align="center">
 
-# Automatizaciones para pymes
+# README principal
 
 **Herramientas simples para que las pequeñas empresas chilenas dejen de escribir los mismos datos dos o tres veces.**
 
