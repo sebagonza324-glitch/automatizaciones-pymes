@@ -14,6 +14,8 @@ dist/
 !**/salida/.gitkeep
 
 # --- Datos: NUNCA subir planillas reales de clientes ---
+# Planilla de trabajo que usa el formulario (se crea sola al primer uso)
+**/datos/
 # Se ignoran todos los Excel/CSV...
 *.xlsx
 *.xls
